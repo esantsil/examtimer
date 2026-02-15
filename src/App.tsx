@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings, Play, Pause, FastForward, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Settings, Play, Pause, FastForward, RotateCcw, AlertTriangle, Clock } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import ThemeSwitch from './components/ThemeSwitch';
 
@@ -22,14 +22,27 @@ export default function App() {
     setNeedRefresh(false);
   };
 
-  // --- State & Persistence ---
+  const DEFAULT_CONFIG = {
+    totalQuestions: 70,
+    totalMinutes: 220,
+    alertThreshold: 176, 
+  };
+
+  const minutesToTimeString = (total: number) => {
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  };
+
+  const timeStringToMinutes = (timeStr: string) => {
+    if (!timeStr) return 1;
+    const [h, m] = timeStr.split(':').map(Number);
+    return (h * 60) + m || 1;
+  };
+
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : {
-      totalQuestions: 70,
-      totalMinutes: 220,
-      alertThreshold: 170, 
-    };
+    return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
   });
 
   const [timeLeft, setTimeLeft] = useState(config.totalMinutes * 60);
@@ -40,17 +53,6 @@ export default function App() {
   const [history, setHistory] = useState<QuestionRecord[]>([]);
 
   const pacePerQuestion = Math.floor((config.totalMinutes * 60) / config.totalQuestions);
-
-  const minutesToTimeString = (total: number) => {
-    const h = Math.floor(total / 60);
-    const m = total % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-  };
-
-  const timeStringToMinutes = (timeStr: string) => {
-    const [h, m] = timeStr.split(':').map(Number);
-    return (h * 60) + m;
-  };
 
   useEffect(() => {
     const autoThreshold = Math.floor(pacePerQuestion * 0.8);
@@ -65,6 +67,18 @@ export default function App() {
       setTimeLeft(config.totalMinutes * 60);
     }
   }, [config, isRunning, history.length]);
+
+  const handleResetConfig = () => {
+    if (window.confirm("Reset all settings and progress?")) {
+      setConfig(DEFAULT_CONFIG);
+      setTimeLeft(DEFAULT_CONFIG.totalMinutes * 60);
+      setHistory([]);
+      setCurrentQ(1);
+      setQTime(0);
+      setIsRunning(false);
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  };
 
   const playAlertSound = useCallback(() => {
     try {
@@ -124,11 +138,11 @@ export default function App() {
   return (
     <div className="min-h-screen bg-base-300 p-2 sm:p-4 flex flex-col items-center justify-center font-sans relative">
       
-      {/* PWA Toast */}
+      {/* PWA Alert */}
       {(offlineReady || needRefresh) && (
         <div className="toast toast-top toast-center z-[100] w-full max-w-xs">
           <div className="alert alert-info shadow-lg flex flex-col gap-2">
-            <span className="text-xs font-bold">{offlineReady ? 'App ready for offline use' : 'New update available!'}</span>
+            <span className="text-xs font-bold">{offlineReady ? 'Ready for offline' : 'Update available!'}</span>
             <div className="flex gap-2 w-full">
               {needRefresh && <button className="btn btn-xs btn-primary flex-1" onClick={() => updateServiceWorker(true)}>Update</button>}
               <button className="btn btn-xs flex-1" onClick={closePwaToast}>Close</button>
@@ -169,7 +183,7 @@ export default function App() {
               {format(qTime)}
             </div>
 
-            <progress className="progress progress-primary w-full mb-12 h-3 shadow-inner" value={currentQ} max={config.totalQuestions}></progress>
+            <progress className="progress progress-primary w-full mb-12 h-3" value={currentQ} max={config.totalQuestions}></progress>
 
             <div className="card-actions w-full flex flex-col gap-3">
               <button 
@@ -190,28 +204,63 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <div className="card w-full max-w-2xl bg-base-100 shadow-2xl border border-primary/10 overflow-hidden text-center">
-          <div className="bg-primary text-primary-content p-5 flex justify-between items-center">
-            <h2 className="font-black text-2xl uppercase italic tracking-tighter">Results</h2>
-            <ThemeSwitch />
-          </div>
-          <div className="card-body p-6 sm:p-10">
-            <div className="stats stats-vertical sm:stats-horizontal shadow bg-base-200 w-full mb-8 font-mono border border-base-300">
-              <div className="stat place-items-center py-6">
-                <div className="stat-title text-[10px] uppercase font-black">Avg/Question</div>
-                <div className={`stat-value text-3xl ${avgTime > pacePerQuestion ? 'text-error' : 'text-success'}`}>{format(avgTime)}</div>
+        /* --- RESULTS VIEW WITH LIST --- */
+        <div className="card w-full max-w-2xl bg-base-100 shadow-2xl border border-primary/10 overflow-hidden">
+  
+
+          <div className="card-body p-4 sm:p-10">
+            <div className="stats stats-vertical lg:stats-horizontal shadow bg-base-200 w-full mb-8 font-mono border border-base-300">
+              <div className="stat place-items-center">
+                <div className="stat-title text-[10px] uppercase font-black">Avg/Q</div>
+                <div className={`stat-value text-2xl ${avgTime > pacePerQuestion ? 'text-error' : 'text-success'}`}>{format(avgTime)}</div>
               </div>
-              <div className="stat place-items-center py-6 border-y sm:border-y-0 sm:border-x border-base-300">
-                <div className="stat-title text-[10px] uppercase font-black">Time Saved</div>
-                <div className="stat-value text-3xl text-secondary">{format(timeLeft, true)}</div>
+              <div className="stat place-items-center">
+                <div className="stat-title text-[10px] uppercase font-black">Saved</div>
+                <div className="stat-value text-2xl text-secondary">{format(timeLeft, true)}</div>
               </div>
-              <div className="stat place-items-center py-6">
-                <div className="stat-title text-[10px] uppercase font-black">Slow Items</div>
-                <div className="stat-value text-3xl text-warning">{history.filter(q => q.timeSpent > config.alertThreshold).length}</div>
+              <div className="stat place-items-center">
+                <div className="stat-title text-[10px] uppercase font-black">Slow Qs</div>
+                <div className="stat-value text-2xl text-warning">{history.filter(q => q.timeSpent > pacePerQuestion).length}</div>
               </div>
             </div>
+
+            {/* DETAILED HISTORY LIST */}
+            <div className="bg-base-200 rounded-3xl p-2 mb-8 max-h-80 overflow-y-auto border border-base-300 shadow-inner">
+              <table className="table table-pin-rows">
+                <thead>
+                  <tr className="border-b border-base-300">
+                    <th className="bg-base-200 font-black text-[10px] uppercase tracking-widest opacity-50 text-center">ID</th>
+                    <th className="bg-base-200 font-black text-[10px] uppercase tracking-widest opacity-50">Time Spent</th>
+                    <th className="bg-base-200 font-black text-[10px] uppercase tracking-widest opacity-50 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono">
+                  {[...history].reverse().map((record) => (
+                    <tr key={record.id} className="border-base-300 hover:bg-base-100 transition-colors">
+                      <td className="text-center font-bold opacity-40 italic">{record.id}</td>
+                      <td className="font-black text-lg">
+                         <div className="flex items-center gap-2">
+                           <Clock size={14} className="opacity-30" />
+                           {format(record.timeSpent)}
+                         </div>
+                      </td>
+                      <td className="text-right">
+                        {record.timeSpent > pacePerQuestion ? (
+                          <span className="badge badge-error badge-sm font-black italic">SLOW</span>
+                        ) : record.timeSpent > config.alertThreshold ? (
+                          <span className="badge badge-warning badge-sm font-black italic">NEAR</span>
+                        ) : (
+                          <span className="badge badge-success badge-sm font-black italic">FAST</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
             <button className="btn btn-primary btn-block btn-lg shadow-2xl font-black uppercase tracking-widest" onClick={() => window.location.reload()}>
-              <RotateCcw size={20}/> RESTART EXAM
+              <RotateCcw size={20}/> RESTART
             </button>
           </div>
         </div>
@@ -220,12 +269,16 @@ export default function App() {
       {/* --- SETTINGS MODAL --- */}
       <dialog id="settings_modal" className="modal modal-bottom sm:modal-middle">
         <div className="modal-box p-6 bg-base-100 border-none">
-          <h3 className="font-black text-2xl uppercase italic tracking-tighter mb-8 text-center">Timer Settings</h3>
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="font-black text-2xl uppercase italic tracking-tighter">Settings</h3>
+            <button className="btn btn-ghost btn-xs text-error font-black uppercase tracking-widest" onClick={handleResetConfig}>
+              Reset Defaults
+            </button>
+          </div>
+
           <div className="space-y-8 text-left">
-            
             <div className="form-control">
               <label className="label py-0"><span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Total Questions</span></label>
-              {/* O CSS global removerá as setas deste input */}
               <input 
                 type="number" 
                 className="input input-ghost border-none focus:outline-none w-full font-black text-2xl bg-base-200 mt-2 h-14" 
@@ -236,7 +289,7 @@ export default function App() {
 
             <div className="form-control">
               <label className="label py-0 flex justify-between items-end">
-                <span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Exam Duration (HH:MM)</span>
+                <span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Exam Duration</span>
                 <span className="text-primary font-mono font-black text-xs">{format(pacePerQuestion)}/q</span>
               </label>
               <input 
@@ -251,7 +304,7 @@ export default function App() {
               <AlertTriangle size={20}/>
               <div>
                 <p className="text-[10px] font-black uppercase leading-tight">Auto-Alert (80% Pace)</p>
-                <p className="text-sm font-mono font-bold">Beep triggers at {format(config.alertThreshold)}</p>
+                <p className="text-sm font-mono font-bold">Sound triggers at {format(config.alertThreshold)}</p>
               </div>
             </div>
           </div>
