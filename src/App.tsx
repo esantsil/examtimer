@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings, Play, Pause, ChevronRight, RotateCcw, AlertTriangle, Clock, Download, Square } from 'lucide-react';
+import { Settings, Play, Pause, ChevronRight, RotateCcw, Clock, Download, Square } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import ThemeSwitch from './components/ThemeSwitch';
 
@@ -24,8 +24,8 @@ export default function App() {
   };
 
   const DEFAULT_CONFIG = {
-    totalQuestions: 70,
-    totalMinutes: 220,
+    totalQuestions: 90,
+    totalMinutes: 300,
     alertThreshold: 176, 
   };
 
@@ -165,7 +165,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `simulado_stats_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `ENEM_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
