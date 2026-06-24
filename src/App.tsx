@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Settings, Play, Pause, ChevronRight, RotateCcw, Clock, Download, Square } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import ThemeSwitch from './components/ThemeSwitch';
@@ -9,7 +9,19 @@ interface QuestionRecord {
   visited: boolean;
 }
 
-const STORAGE_KEY = 'exam_timer_pro_config_v4';
+const STORAGE_KEY = 'exam_timer_pro_config_v5';
+// Definição dos pontos de alerta em segundos baseados no tempo restante de prova
+const LANG = "ptbr"
+const AUDIO_ALERTS = [
+  { label: '4h30', triggerAtSeconds: 16200, file: `/audio/${LANG}/4h30.mp3` }, // 4h30m restantes = 270 min * 60s
+  { label: '4h',    triggerAtSeconds: 14400, file: `/audio/${LANG}/4h.mp3` },    // 4h00m restantes = 240 min * 60s
+  { label: '3h30', triggerAtSeconds: 12600, file: `/audio/${LANG}/3h30.mp3` }, // 3h30m restantes = 210 min * 60s
+  { label: '3h',    triggerAtSeconds: 10800, file: `/audio/${LANG}/3h.mp3` },    // 3h00m restantes = 180 min * 60s
+  { label: '2h30', triggerAtSeconds: 9000,  file: `/audio/${LANG}/2h30.mp3` },  // 2h30m restantes = 150 min * 60s
+  { label: '2h',    triggerAtSeconds: 7200,  file: `/audio/${LANG}/2h.mp3` },    // 2h00m restantes = 120 min * 60s
+  { label: '1h30', triggerAtSeconds: 5400,  file: `/audio/${LANG}/1h30.mp3` },  // 1h30m restantes = 90 min * 60s
+  { label: '1h',    triggerAtSeconds: 3600,  file: `/audio/${LANG}/1h.mp3` },    // 1h00m restantes = 60 min * 60s
+];
 
 export default function App() {
   const {
@@ -23,9 +35,10 @@ export default function App() {
     setNeedRefresh(false);
   };
 
+  // Alterado o padrão para 5 horas (300 minutos) para englobar o primeiro áudio de 4h30
   const DEFAULT_CONFIG = {
-    totalQuestions: 90,
-    totalMinutes: 300,
+    totalQuestions: 70,
+    totalMinutes: 300, 
     alertThreshold: 176, 
   };
 
@@ -51,6 +64,9 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   
+  // Guarda quais alertas já tocaram nesta sessão para evitar repetições indesejadas
+  const playedAlertsRef = useRef<string[]>([]);
+
   const [history, setHistory] = useState<QuestionRecord[]>(() => {
     return Array.from({ length: config.totalQuestions }, (_, i) => ({
       id: i + 1,
@@ -75,6 +91,7 @@ export default function App() {
       visited: false
     })));
     setTimeLeft(config.totalMinutes * 60);
+    playedAlertsRef.current = []; // Reseta o histórico de áudios ao mudar configurações
   }, [config.totalQuestions, config.totalMinutes]);
 
   const handleResetConfig = () => {
@@ -83,9 +100,18 @@ export default function App() {
       setCurrentQ(1);
       setIsRunning(false);
       setIsFinished(false);
+      playedAlertsRef.current = [];
       localStorage.removeItem(STORAGE_KEY);
     }
   };
+
+  // Função para reproduzir os arquivos MP3 carregados na pasta public
+  const playVoiceAlert = useCallback((filePath: string) => {
+    try {
+      const audio = new Audio(filePath);
+      audio.play().catch(e => console.error("Erro ao reproduzir o áudio (bloqueio do navegador):", e));
+    } catch (e) { console.error(e); }
+  }, []);
 
   const playAlertSound = useCallback(() => {
     try {
@@ -102,11 +128,20 @@ export default function App() {
     } catch (e) { console.error(e); }
   }, []);
 
+  // Timer principal unificado
   useEffect(() => {
     let timer: number;
     if (isRunning && timeLeft > 0 && !isFinished) {
       timer = window.setInterval(() => {
-        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+        const nextTimeLeft = timeLeft - 1;
+        setTimeLeft(nextTimeLeft >= 0 ? nextTimeLeft : 0);
+
+        // Verifica se o tempo restante atual bate com algum gatilho de áudio do ElevenLabs
+        const alertToPlay = AUDIO_ALERTS.find(alert => alert.triggerAtSeconds === nextTimeLeft);
+        if (alertToPlay && !playedAlertsRef.current.includes(alertToPlay.label)) {
+          playVoiceAlert(alertToPlay.file);
+          playedAlertsRef.current.push(alertToPlay.label);
+        }
         
         setHistory((prevHistory) =>
           prevHistory.map((q) => {
@@ -121,7 +156,7 @@ export default function App() {
       }, 1000);
     }
     return () => clearInterval(timer);
-  }, [isRunning, timeLeft, isFinished, currentQ, config.alertThreshold, playAlertSound]);
+  }, [isRunning, timeLeft, isFinished, currentQ, config.alertThreshold, playAlertSound, playVoiceAlert]);
 
   const format = (s: number, hours = false) => {
     const h = Math.floor(s / 3600);
@@ -165,7 +200,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `ENEM_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `simulado_stats_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -176,9 +211,7 @@ export default function App() {
     ? Math.floor(answeredQuestions.reduce((a, b) => a + b.timeSpent, 0) / answeredQuestions.length) 
     : 0;
 
-  // Calcula a soma total de tempo gasto em todas as questões feitas
   const totalTimeSpent = history.reduce((acc, q) => acc + q.timeSpent, 0);
-
   const currentQData = history.find(q => q.id === currentQ);
   const currentQTime = currentQData ? currentQData.timeSpent : 0;
 
@@ -216,23 +249,28 @@ export default function App() {
             </div>
 
             <div className="card-body px-6 py-8 items-center text-center">
-              <div className="flex justify-between w-full mb-8 font-mono text-base-content/60">
-                <div className="text-left">
-                  <p className="text-[10px] uppercase font-black tracking-widest">Questão Atual</p>
-                  <p className="text-lg font-black text-base-content">{currentQ} <span className="opacity-30 text-xs">/ {config.totalQuestions}</span></p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase font-black tracking-widest">Tempo Restante Total</p>
-                  <p className={`text-lg font-black ${timeLeft < 600 ? 'text-error animate-pulse' : 'text-base-content'}`}>{format(timeLeft, true)}</p>
-                </div>
+              <div className="w-full text-left mb-6 border-b border-base-200 pb-2">
+                <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60">Questão Atual</p>
+                <p className="text-2xl font-black text-base-content">{currentQ} <span className="opacity-30 text-sm">/ {config.totalQuestions}</span></p>
               </div>
 
-              <div className="text-[10px] uppercase font-black tracking-widest opacity-40 mb-1">Tempo nesta Questão</div>
-              <div className={`text-7xl sm:text-8xl font-mono font-black mb-6 transition-all tracking-tighter ${
-                currentQTime > pacePerQuestion ? 'text-error animate-pulse' : 
-                currentQTime > config.alertThreshold ? 'text-warning' : 'text-primary'
-              }`}>
-                {format(currentQTime)}
+              <div className="grid grid-cols-2 gap-4 w-full bg-base-200/50 p-4 rounded-2xl mb-6 font-mono">
+                <div className="text-center border-r border-base-300">
+                  <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60 mb-1">Gasto na Questão</p>
+                  <p className={`text-4xl sm:text-5xl font-black transition-all tracking-tighter ${
+                    currentQTime > pacePerQuestion ? 'text-error animate-pulse' : 
+                    currentQTime > config.alertThreshold ? 'text-warning' : 'text-primary'
+                  }`}>
+                    {format(currentQTime)}
+                  </p>
+                </div>
+                
+                <div className="text-center flex flex-col justify-center">
+                  <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60 mb-1">Total Restante</p>
+                  <p className={`text-4xl sm:text-5xl font-black tracking-tighter ${timeLeft < 600 ? 'text-error animate-pulse' : 'text-base-content'}`}>
+                    {format(timeLeft, true)}
+                  </p>
+                </div>
               </div>
 
               <progress className="progress progress-primary w-full mb-8 h-3" value={currentQ} max={config.totalQuestions}></progress>
@@ -315,13 +353,11 @@ export default function App() {
                 <div className={`stat-value text-2xl ${avgTime > pacePerQuestion ? 'text-error' : 'text-success'}`}>{format(avgTime)}</div>
               </div>
               
-              {/* TEMPO TOTAL GASTO */}
               <div className="stat place-items-center">
                 <div className="stat-title text-[10px] uppercase font-black">Tempo Total Gasto</div>
                 <div className="stat-value text-2xl text-primary">{format(totalTimeSpent, true)}</div>
               </div>
 
-              {/* TEMPO SOBRANDO (LADO A LADO COM O GASTO) */}
               <div className="stat place-items-center">
                 <div className="stat-title text-[10px] uppercase font-black">Tempo Restante</div>
                 <div className="stat-value text-2xl text-secondary">{format(timeLeft, true)}</div>
@@ -342,7 +378,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* LISTA DETALHADA DE TODAS AS QUESTÕES */}
             <div className="bg-base-200 rounded-3xl p-2 mb-8 max-h-80 overflow-y-auto border border-base-300 shadow-inner">
               <table className="table table-pin-rows">
                 <thead>
