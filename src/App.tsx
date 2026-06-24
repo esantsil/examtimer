@@ -11,7 +11,7 @@ interface QuestionRecord {
 
 const STORAGE_KEY = 'exam_timer_pro_config_v10_en';
 
-const LANG = "en";
+const LANG = "ptbr";
 const AUDIO_ALERTS = [
   { label: '4h30', triggerAtSeconds: 16200, file: `/audio/${LANG}/4h30.mp3` }, 
   { label: '4h',    triggerAtSeconds: 14400, file: `/audio/${LANG}/4h.mp3` },    
