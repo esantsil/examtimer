@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, Pause, ChevronRight, RotateCcw, Clock, Download, Square } from 'lucide-react';
+import { Settings, Pause, ChevronRight, RotateCcw, Clock, Download, Square, Volume2 } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import ThemeSwitch from './components/ThemeSwitch';
 
@@ -93,7 +93,6 @@ export default function App() {
     playedAlertsRef.current = []; 
   }, [config.totalQuestions, config.totalMinutes]);
 
-  // Função para limpar inputs inválidos quando o usuário sai do campo ou salva
   const validateAndSanitizeConfig = useCallback(() => {
     setConfig((prev: any) => {
       const sanitized = {
@@ -130,7 +129,7 @@ export default function App() {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const oscillator = audioCtx.createOscillator();
       const gainNode = audioCtx.createGain();
-      oscillator.type = 'sine';
+       oscillator.type = 'sine';
       oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
       gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
       oscillator.connect(gainNode);
@@ -139,6 +138,28 @@ export default function App() {
       oscillator.stop(audioCtx.currentTime + 0.2);
     } catch (e) { console.error(e); }
   }, []);
+
+  // Avança o timer para testar o áudio mais próximo de tocar
+  const handleSkipToNextAlert = () => {
+    // Ordena do maior tempo restante para o menor
+    const sortedAlerts = [...AUDIO_ALERTS].sort((a, b) => b.triggerAtSeconds - a.triggerAtSeconds);
+    // Encontra o primeiro alerta que está abaixo do tempo atual do timer
+    const nextAlert = sortedAlerts.find(alert => alert.triggerAtSeconds < timeLeft);
+
+    if (nextAlert) {
+      // Define o tempo restante para 1 segundo antes do gatilho (para tocar no próximo tick)
+      setTimeLeft(nextAlert.triggerAtSeconds + 1);
+      // Remove da lista de já tocados caso estivesse lá, para garantir que vai tocar
+      playedAlertsRef.current = playedAlertsRef.current.filter(label => label !== nextAlert.label);
+    } else {
+      // Se já passou de todos, bota no tempo do último alerta só para testar
+      const lastAlert = sortedAlerts[sortedAlerts.length - 1];
+      if (lastAlert) {
+        setTimeLeft(lastAlert.triggerAtSeconds + 1);
+        playedAlertsRef.current = playedAlertsRef.current.filter(label => label !== lastAlert.label);
+      }
+    }
+  };
 
   useEffect(() => {
     let timer: number;
@@ -245,13 +266,25 @@ export default function App() {
           
           <div className="card w-full bg-base-100 shadow-2xl border border-primary/10 overflow-hidden">
             <div className="flex justify-between items-center p-3 border-b border-base-200 bg-base-200/30">
-              <button 
-                className="btn btn-ghost btn-circle btn-sm text-base-content/70"
-                onClick={() => (document.getElementById('settings_modal') as any).showModal()}
-                disabled={isRunning || answeredQuestions.length > 0}
-              >
-                <Settings size={20} />
-              </button>
+              <div className="flex gap-1">
+                <button 
+                  className="btn btn-ghost btn-circle btn-sm text-base-content/70"
+                  onClick={() => (document.getElementById('settings_modal') as any).showModal()}
+                  disabled={isRunning || answeredQuestions.length > 0}
+                  title="Settings"
+                >
+                  <Settings size={20} />
+                </button>
+                
+                {/* Botão de Teste de Áudio adicionado aqui */}
+                {/*<button 
+                  className="btn btn-ghost btn-circle btn-sm text-info"
+                  onClick={handleSkipToNextAlert}
+                  title="Test Next Audio Alert"
+                >
+                  <Volume2 size={20} />
+                </button>*/}
+              </div>
               <ThemeSwitch />
             </div>
 
