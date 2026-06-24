@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, Play, Pause, ChevronRight, RotateCcw, Clock, Download, Square } from 'lucide-react';
+import { Settings, Pause, ChevronRight, RotateCcw, Clock, Download, Square } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import ThemeSwitch from './components/ThemeSwitch';
 
@@ -9,18 +9,18 @@ interface QuestionRecord {
   visited: boolean;
 }
 
-const STORAGE_KEY = 'exam_timer_pro_config_v5';
-// Definição dos pontos de alerta em segundos baseados no tempo restante de prova
-const LANG = "ptbr"
+const STORAGE_KEY = 'exam_timer_pro_config_v10_en';
+
+const LANG = "en";
 const AUDIO_ALERTS = [
-  { label: '4h30', triggerAtSeconds: 16200, file: `/audio/${LANG}/4h30.mp3` }, // 4h30m restantes = 270 min * 60s
-  { label: '4h',    triggerAtSeconds: 14400, file: `/audio/${LANG}/4h.mp3` },    // 4h00m restantes = 240 min * 60s
-  { label: '3h30', triggerAtSeconds: 12600, file: `/audio/${LANG}/3h30.mp3` }, // 3h30m restantes = 210 min * 60s
-  { label: '3h',    triggerAtSeconds: 10800, file: `/audio/${LANG}/3h.mp3` },    // 3h00m restantes = 180 min * 60s
-  { label: '2h30', triggerAtSeconds: 9000,  file: `/audio/${LANG}/2h30.mp3` },  // 2h30m restantes = 150 min * 60s
-  { label: '2h',    triggerAtSeconds: 7200,  file: `/audio/${LANG}/2h.mp3` },    // 2h00m restantes = 120 min * 60s
-  { label: '1h30', triggerAtSeconds: 5400,  file: `/audio/${LANG}/1h30.mp3` },  // 1h30m restantes = 90 min * 60s
-  { label: '1h',    triggerAtSeconds: 3600,  file: `/audio/${LANG}/1h.mp3` },    // 1h00m restantes = 60 min * 60s
+  { label: '4h30', triggerAtSeconds: 16200, file: `/audio/${LANG}/4h30.mp3` }, 
+  { label: '4h',    triggerAtSeconds: 14400, file: `/audio/${LANG}/4h.mp3` },    
+  { label: '3h30', triggerAtSeconds: 12600, file: `/audio/${LANG}/3h30.mp3` }, 
+  { label: '3h',    triggerAtSeconds: 10800, file: `/audio/${LANG}/3h.mp3` },    
+  { label: '2h30', triggerAtSeconds: 9000,  file: `/audio/${LANG}/2h30.mp3` },  
+  { label: '2h',    triggerAtSeconds: 7200,  file: `/audio/${LANG}/2h.mp3` },    
+  { label: '1h30', triggerAtSeconds: 5400,  file: `/audio/${LANG}/1h30.mp3` },  
+  { label: '1h',    triggerAtSeconds: 3600,  file: `/audio/${LANG}/1h.mp3` },    
 ];
 
 export default function App() {
@@ -35,23 +35,24 @@ export default function App() {
     setNeedRefresh(false);
   };
 
-  // Alterado o padrão para 5 horas (300 minutos) para englobar o primeiro áudio de 4h30
   const DEFAULT_CONFIG = {
-    totalQuestions: 70,
+    totalQuestions: 90,
     totalMinutes: 300, 
+    thresholdPercentage: 80,
     alertThreshold: 176, 
   };
 
   const minutesToTimeString = (total: number) => {
+    if (!total) return "00:00";
     const h = Math.floor(total / 60);
     const m = total % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   };
 
   const timeStringToMinutes = (timeStr: string) => {
-    if (!timeStr) return 1;
+    if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
-    return (h * 60) + m || 1;
+    return (h * 60) + m || 0;
   };
 
   const [config, setConfig] = useState(() => {
@@ -59,43 +60,55 @@ export default function App() {
     return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
   });
 
-  const [timeLeft, setTimeLeft] = useState(config.totalMinutes * 60);
+  const [timeLeft, setTimeLeft] = useState((config.totalMinutes || 1) * 60);
   const [currentQ, setCurrentQ] = useState(1);
   const [isRunning, setIsRunning] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
-  
-  // Guarda quais alertas já tocaram nesta sessão para evitar repetições indesejadas
   const playedAlertsRef = useRef<string[]>([]);
 
   const [history, setHistory] = useState<QuestionRecord[]>(() => {
-    return Array.from({ length: config.totalQuestions }, (_, i) => ({
+    return Array.from({ length: config.totalQuestions || 1 }, (_, i) => ({
       id: i + 1,
       timeSpent: 0,
       visited: false
     }));
   });
 
-  const pacePerQuestion = Math.floor((config.totalMinutes * 60) / config.totalQuestions);
+  const pacePerQuestion = Math.floor(((config.totalMinutes || 1) * 60) / (config.totalQuestions || 1));
 
   useEffect(() => {
-    const autoThreshold = Math.floor(pacePerQuestion * 0.8);
-    if (config.alertThreshold !== autoThreshold) {
-      setConfig((prev: any) => ({ ...prev, alertThreshold: autoThreshold }));
+    const calculatedThreshold = Math.floor(pacePerQuestion * ((config.thresholdPercentage || 80) / 100));
+    if (config.alertThreshold !== calculatedThreshold) {
+      setConfig((prev: any) => ({ ...prev, alertThreshold: calculatedThreshold }));
     }
-  }, [config.totalMinutes, config.totalQuestions, pacePerQuestion]);
+  }, [config.totalMinutes, config.totalQuestions, config.thresholdPercentage, pacePerQuestion]);
 
   useEffect(() => {
-    setHistory(Array.from({ length: config.totalQuestions }, (_, i) => ({
+    setHistory(Array.from({ length: config.totalQuestions || 1 }, (_, i) => ({
       id: i + 1,
       timeSpent: 0,
       visited: false
     })));
-    setTimeLeft(config.totalMinutes * 60);
-    playedAlertsRef.current = []; // Reseta o histórico de áudios ao mudar configurações
+    setTimeLeft((config.totalMinutes || 1) * 60);
+    playedAlertsRef.current = []; 
   }, [config.totalQuestions, config.totalMinutes]);
 
+  // Função para limpar inputs inválidos quando o usuário sai do campo ou salva
+  const validateAndSanitizeConfig = useCallback(() => {
+    setConfig((prev: any) => {
+      const sanitized = {
+        totalQuestions: prev.totalQuestions < 1 ? 1 : prev.totalQuestions,
+        totalMinutes: prev.totalMinutes < 1 ? 1 : prev.totalMinutes,
+        thresholdPercentage: prev.thresholdPercentage > 100 ? 100 : prev.thresholdPercentage < 1 ? 1 : prev.thresholdPercentage,
+        alertThreshold: prev.alertThreshold
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+      return sanitized;
+    });
+  }, []);
+
   const handleResetConfig = () => {
-    if (window.confirm("Resetar todas as configurações e progresso?")) {
+    if (window.confirm("Reset all configurations and clear progress?")) {
       setConfig(DEFAULT_CONFIG);
       setCurrentQ(1);
       setIsRunning(false);
@@ -105,11 +118,10 @@ export default function App() {
     }
   };
 
-  // Função para reproduzir os arquivos MP3 carregados na pasta public
   const playVoiceAlert = useCallback((filePath: string) => {
     try {
       const audio = new Audio(filePath);
-      audio.play().catch(e => console.error("Erro ao reproduzir o áudio (bloqueio do navegador):", e));
+      audio.play().catch(e => console.error("Audio playback blocked or file not found:", e));
     } catch (e) { console.error(e); }
   }, []);
 
@@ -128,7 +140,6 @@ export default function App() {
     } catch (e) { console.error(e); }
   }, []);
 
-  // Timer principal unificado
   useEffect(() => {
     let timer: number;
     if (isRunning && timeLeft > 0 && !isFinished) {
@@ -136,7 +147,6 @@ export default function App() {
         const nextTimeLeft = timeLeft - 1;
         setTimeLeft(nextTimeLeft >= 0 ? nextTimeLeft : 0);
 
-        // Verifica se o tempo restante atual bate com algum gatilho de áudio do ElevenLabs
         const alertToPlay = AUDIO_ALERTS.find(alert => alert.triggerAtSeconds === nextTimeLeft);
         if (alertToPlay && !playedAlertsRef.current.includes(alertToPlay.label)) {
           playVoiceAlert(alertToPlay.file);
@@ -187,11 +197,11 @@ export default function App() {
   };
 
   const exportToCSV = () => {
-    const headers = 'Questao,Tempo_Segundos,Tempo_Formatado,Status\n';
+    const headers = 'Question,Time_Seconds,Formatted_Time,Status\n';
     const rows = history.map(q => {
-      let status = 'NÃO RESPONDIDA';
+      let status = 'UNANSWERED';
       if (q.visited || q.timeSpent > 0) {
-        status = q.timeSpent > pacePerQuestion ? 'LENTA' : q.timeSpent > config.alertThreshold ? 'ALERTA' : 'RÁPIDA';
+        status = q.timeSpent > pacePerQuestion ? 'SLOW' : q.timeSpent > config.alertThreshold ? 'ALERT' : 'FAST';
       }
       return `${q.id},${q.timeSpent},"${format(q.timeSpent)}",${status}`;
     }).join('\n');
@@ -200,7 +210,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `simulado_stats_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `exam_stats_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -218,14 +228,13 @@ export default function App() {
   return (
     <div className="min-h-screen bg-base-300 p-2 sm:p-4 flex flex-col items-center justify-center font-sans relative">
       
-      {/* PWA Alert */}
       {(offlineReady || needRefresh) && (
         <div className="toast toast-top toast-center z-[100] w-full max-w-xs">
           <div className="alert alert-info shadow-lg flex flex-col gap-2">
-            <span className="text-xs font-bold">{offlineReady ? 'Pronto Offline' : 'Atualização Disponível!'}</span>
+            <span className="text-xs font-bold">{offlineReady ? 'Ready Offline' : 'Update Available!'}</span>
             <div className="flex gap-2 w-full">
-              {needRefresh && <button className="btn btn-xs btn-primary flex-1" onClick={() => updateServiceWorker(true)}>Atualizar</button>}
-              <button className="btn btn-xs flex-1" onClick={closePwaToast}>Fechar</button>
+              {needRefresh && <button className="btn btn-xs btn-primary flex-1" onClick={() => updateServiceWorker(true)}>Update</button>}
+              <button className="btn btn-xs flex-1" onClick={closePwaToast}>Close</button>
             </div>
           </div>
         </div>
@@ -234,7 +243,6 @@ export default function App() {
       {!isFinished ? (
         <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start">
           
-          {/* PAINEL DO CRONÔMETRO PRINCIPAL */}
           <div className="card w-full bg-base-100 shadow-2xl border border-primary/10 overflow-hidden">
             <div className="flex justify-between items-center p-3 border-b border-base-200 bg-base-200/30">
               <button 
@@ -244,33 +252,32 @@ export default function App() {
               >
                 <Settings size={20} />
               </button>
-              <span className="font-bold text-xs tracking-wider opacity-60">PRO TIMER MODO ESTRATÉGICO</span>
               <ThemeSwitch />
             </div>
 
             <div className="card-body px-6 py-8 items-center text-center">
-              <div className="w-full text-left mb-6 border-b border-base-200 pb-2">
-                <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60">Questão Atual</p>
-                <p className="text-2xl font-black text-base-content">{currentQ} <span className="opacity-30 text-sm">/ {config.totalQuestions}</span></p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 w-full bg-base-200/50 p-4 rounded-2xl mb-6 font-mono">
-                <div className="text-center border-r border-base-300">
-                  <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60 mb-1">Gasto na Questão</p>
-                  <p className={`text-4xl sm:text-5xl font-black transition-all tracking-tighter ${
-                    currentQTime > pacePerQuestion ? 'text-error animate-pulse' : 
-                    currentQTime > config.alertThreshold ? 'text-warning' : 'text-primary'
-                  }`}>
-                    {format(currentQTime)}
-                  </p>
+              
+              <div className="flex justify-between items-end w-full mb-6 border-b border-base-200 pb-3">
+                <div className="text-left">
+                  <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60">Current Question</p>
+                  <p className="text-2xl font-black text-base-content">{currentQ} <span className="opacity-30 text-sm">/ {config.totalQuestions}</span></p>
                 </div>
-                
-                <div className="text-center flex flex-col justify-center">
-                  <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60 mb-1">Total Restante</p>
-                  <p className={`text-4xl sm:text-5xl font-black tracking-tighter ${timeLeft < 600 ? 'text-error animate-pulse' : 'text-base-content'}`}>
+                <div className="text-right font-mono">
+                  <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60 mb-0.5">Total Remaining</p>
+                  <p className={`text-2xl font-black tracking-tight ${timeLeft < 600 ? 'text-error animate-pulse' : 'text-base-content/90'}`}>
                     {format(timeLeft, true)}
                   </p>
                 </div>
+              </div>
+
+              <div className="w-full bg-base-200/50 p-6 rounded-2xl mb-6 font-mono text-center">
+                <p className="text-[10px] uppercase font-black tracking-widest text-base-content/60 mb-2">Spent on Question</p>
+                <p className={`text-5xl sm:text-6xl font-black transition-all tracking-tighter ${
+                  currentQTime > pacePerQuestion ? 'text-error animate-pulse' : 
+                  currentQTime > config.alertThreshold ? 'text-warning' : 'text-primary'
+                }`}>
+                  {format(currentQTime)}
+                </p>
               </div>
 
               <progress className="progress progress-primary w-full mb-8 h-3" value={currentQ} max={config.totalQuestions}></progress>
@@ -281,7 +288,7 @@ export default function App() {
                     className={`btn btn-lg h-20 shadow-xl border-2 transition-all ${isRunning ? 'btn-outline btn-warning' : 'btn-primary text-xl font-black italic'}`}
                     onClick={() => setIsRunning(!isRunning)}
                   >
-                    {isRunning ? <><Pause size={24}/> PAUSAR</> : <><Play size={24}/> INICIAR RELÓGIO</>}
+                    {isRunning ? <><Pause size={24}/> PAUSE</> : <>START</>}
                   </button>
                   
                   <button 
@@ -289,25 +296,24 @@ export default function App() {
                     onClick={handleNext}
                     disabled={!isRunning}
                   >
-                    Próxima <ChevronRight size={24}/>
+                    Next <ChevronRight size={24}/>
                   </button>
                 </div>
 
-                <div className="divider opacity-50 my-1">Ações Globais</div>
+                <div className="divider opacity-50 my-1"></div>
 
                 <button 
                   className="btn btn-error btn-outline btn-block font-bold shadow-md"
-                  onClick={() => window.confirm("Deseja realmente encerrar a prova agora?") && handleFinishExam()}
+                  onClick={() => window.confirm("Are you sure you want to finish the exam right now?") && handleFinishExam()}
                 >
-                  <Square size={16} fill="currentColor"/> Finalizar Simulado Completamente
+                  <Square size={16} fill="currentColor"/> Finish Exam
                 </button>
               </div>
             </div>
           </div>
 
-          {/* TABELA / GRADE LATERAL DE NAVEGAÇÃO DE QUESTÕES */}
           <div className="card w-full bg-base-100 shadow-xl border border-base-200 p-4 max-h-[550px] lg:max-h-[600px] flex flex-col">
-            <h3 className="font-black uppercase tracking-wider text-sm mb-3 opacity-70 text-center lg:text-left">Painel de Questões</h3>
+            <h3 className="font-black uppercase tracking-wider text-sm mb-3 opacity-70 text-center lg:text-left">Question Board</h3>
             <div className="grid grid-cols-5 gap-2 overflow-y-auto p-1 flex-1 shadow-inner rounded-xl bg-base-200/50">
               {history.map((q) => {
                 const isCurrent = q.id === currentQ;
@@ -325,7 +331,7 @@ export default function App() {
                     key={q.id}
                     onClick={() => navigateToQuestion(q.id)}
                     className={`btn btn-sm p-0 font-mono text-xs shadow-sm ${btnClass}`}
-                    title={q.timeSpent > 0 ? `Tempo: ${format(q.timeSpent)}` : 'Não visitada'}
+                    title={q.timeSpent > 0 ? `Time spent: ${format(q.timeSpent)}` : 'Not visited'}
                   >
                     {q.id.toString().padStart(2, '0')}
                     {q.timeSpent > 0 && <span className="absolute bottom-0 text-[7px] opacity-60 font-sans">{format(q.timeSpent)}</span>}
@@ -334,37 +340,36 @@ export default function App() {
               })}
             </div>
             <div className="mt-3 text-[10px] space-y-1 opacity-70 px-1">
-              <div className="flex gap-2 items-center"><div className="w-2 h-2 rounded-full bg-success"></div> Tempo ideal</div>
-              <div className="flex gap-2 items-center"><div className="w-2 h-2 rounded-full bg-warning"></div> Próximo do limite</div>
-              <div className="flex gap-2 items-center"><div className="w-2 h-2 rounded-full bg-error"></div> Estourou tempo médio</div>
+              <div className="flex gap-2 items-center"><div className="w-2 h-2 rounded-full bg-success"></div> Optimal target time</div>
+              <div className="flex gap-2 items-center"><div className="w-2 h-2 rounded-full bg-warning"></div> Approaching warning threshold</div>
+              <div className="flex gap-2 items-center"><div className="w-2 h-2 rounded-full bg-error"></div> Exceeded average allocated pace</div>
             </div>
           </div>
 
         </div>
       ) : (
-        /* --- VISÃO DE RESULTADOS E ESTATÍSTICAS --- */
         <div className="card w-full max-w-3xl bg-base-100 shadow-2xl border border-primary/10 overflow-hidden">
           <div className="card-body p-4 sm:p-10">
-            <h2 className="text-3xl font-black text-center mb-2 italic tracking-tight uppercase">Simulado Concluído!</h2>
+            <h2 className="text-3xl font-black text-center mb-2 italic tracking-tight uppercase">Exam Completed!</h2>
             
             <div className="stats stats-vertical lg:stats-horizontal shadow bg-base-200 w-full mb-6 font-mono border border-base-300">
               <div className="stat place-items-center">
-                <div className="stat-title text-[10px] uppercase font-black">Média/Questão (Feitas)</div>
+                <div className="stat-title text-[10px] uppercase font-black">Average Time/Question</div>
                 <div className={`stat-value text-2xl ${avgTime > pacePerQuestion ? 'text-error' : 'text-success'}`}>{format(avgTime)}</div>
               </div>
               
               <div className="stat place-items-center">
-                <div className="stat-title text-[10px] uppercase font-black">Tempo Total Gasto</div>
+                <div className="stat-title text-[10px] uppercase font-black">Total Elapsed Time</div>
                 <div className="stat-value text-2xl text-primary">{format(totalTimeSpent, true)}</div>
               </div>
 
               <div className="stat place-items-center">
-                <div className="stat-title text-[10px] uppercase font-black">Tempo Restante</div>
+                <div className="stat-title text-[10px] uppercase font-black">Remaining Time</div>
                 <div className="stat-value text-2xl text-secondary">{format(timeLeft, true)}</div>
               </div>
 
               <div className="stat place-items-center">
-                <div className="stat-title text-[10px] uppercase font-black">Questões Lentas</div>
+                <div className="stat-title text-[10px] uppercase font-black">Slow Questions</div>
                 <div className="stat-value text-2xl text-warning">{history.filter(q => q.timeSpent > pacePerQuestion).length}</div>
               </div>
             </div>
@@ -374,7 +379,7 @@ export default function App() {
                 className="btn btn-secondary flex-1 shadow-lg font-black uppercase tracking-widest text-xs" 
                 onClick={exportToCSV}
               >
-                <Download size={16}/> Exportar Dados (.CSV)
+                <Download size={16}/> Export Analytics (.CSV)
               </button>
             </div>
 
@@ -383,7 +388,7 @@ export default function App() {
                 <thead>
                   <tr className="border-b border-base-300">
                     <th className="bg-base-200 font-black text-[10px] uppercase tracking-widest opacity-50 text-center">ID</th>
-                    <th className="bg-base-200 font-black text-[10px] uppercase tracking-widest opacity-50">Tempo Gasto</th>
+                    <th className="bg-base-200 font-black text-[10px] uppercase tracking-widest opacity-50">Spent Duration</th>
                     <th className="bg-base-200 font-black text-[10px] uppercase tracking-widest opacity-50 text-right">Status</th>
                   </tr>
                 </thead>
@@ -399,13 +404,13 @@ export default function App() {
                       </td>
                       <td className="text-right">
                         {record.timeSpent === 0 ? (
-                          <span className="badge badge-neutral badge-sm font-black italic opacity-40">PULADA</span>
+                          <span className="badge badge-neutral badge-sm font-black italic opacity-40">SKIPPED</span>
                         ) : record.timeSpent > pacePerQuestion ? (
-                          <span className="badge badge-error badge-sm font-black italic">LENTA</span>
+                          <span className="badge badge-error badge-sm font-black italic">SLOW</span>
                         ) : record.timeSpent > config.alertThreshold ? (
-                          <span className="badge badge-warning badge-sm font-black italic">ALERTA</span>
+                          <span className="badge badge-warning badge-sm font-black italic">ALERT</span>
                         ) : (
-                          <span className="badge badge-success badge-sm font-black italic">RÁPIDA</span>
+                          <span className="badge badge-success badge-sm font-black italic">FAST</span>
                         )}
                       </td>
                     </tr>
@@ -415,50 +420,69 @@ export default function App() {
             </div>
 
             <button className="btn btn-primary btn-block btn-lg shadow-2xl font-black uppercase tracking-widest" onClick={() => window.location.reload()}>
-              <RotateCcw size={20}/> Reiniciar Novo Simulado
+              <RotateCcw size={20}/> Restart
             </button>
           </div>
         </div>
       )}
 
-      {/* --- MODAL DE CONFIGURAÇÕES --- */}
+      {/* --- CONFIGURATIONS MODAL DIALOG --- */}
       <dialog id="settings_modal" className="modal modal-bottom sm:modal-middle">
         <div className="modal-box p-6 bg-base-100 border-none">
           <div className="flex justify-between items-center mb-8">
-            <h3 className="font-black text-2xl uppercase italic tracking-tighter">Configurações</h3>
+            <h3 className="font-black text-2xl uppercase italic tracking-tighter">Settings</h3>
             <button className="btn btn-ghost btn-xs text-error font-black uppercase tracking-widest" onClick={handleResetConfig}>
-              Resetar Padrões
+              Default Settings
             </button>
           </div>
 
-          <div className="space-y-8 text-left">
+          <div className="space-y-6 text-left">
             <div className="form-control">
-              <label className="label py-0"><span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Total de Questões</span></label>
+              <label className="label py-0"><span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Total Questions</span></label>
               <input 
                 type="number" 
                 className="input input-ghost border-none focus:outline-none w-full font-black text-2xl bg-base-200 mt-2 h-14" 
-                value={config.totalQuestions} 
-                onChange={(e) => setConfig({...config, totalQuestions: Number(e.target.value) || 1})}
+                value={config.totalQuestions || ''} 
+                onBlur={validateAndSanitizeConfig}
+                onChange={(e) => setConfig({...config, totalQuestions: e.target.value === '' ? '' : Number(e.target.value)})}
               />
             </div>
 
             <div className="form-control">
               <label className="label py-0 flex justify-between items-end">
-                <span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Tempo Total de Prova</span>
-                <span className="text-primary font-mono font-black text-xs">{format(pacePerQuestion)}/q</span>
+                <span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Total Exam Duration</span>
+                <span className="text-primary font-mono font-black text-xs">{format(pacePerQuestion)}/q (Avg)</span>
               </label>
               <input 
                 type="time" 
                 className="input input-ghost border-none focus:outline-none w-full font-black text-3xl h-16 bg-base-200 mt-2 text-center uppercase" 
                 value={minutesToTimeString(config.totalMinutes)}
-                onChange={(e) => setConfig({...config, totalMinutes: timeStringToMinutes(e.target.value) || 1})}
+                onBlur={validateAndSanitizeConfig}
+                onChange={(e) => setConfig({...config, totalMinutes: timeStringToMinutes(e.target.value)})}
               />
+            </div>
+
+            <div className="form-control">
+              <label className="label py-0 flex justify-between items-end">
+                <span className="label-text font-black uppercase text-[10px] opacity-50 tracking-widest">Question Alert Threshold (%)</span>
+                <span className="text-warning font-mono font-black text-xs">Triggers sound at: {format(config.alertThreshold)}</span>
+              </label>
+              <div className="relative mt-2">
+                <input 
+                  type="number" 
+                  className="input input-ghost border-none focus:outline-none w-full font-black text-2xl bg-base-200 h-14 pr-12" 
+                  value={config.thresholdPercentage || ''} 
+                  onBlur={validateAndSanitizeConfig}
+                  onChange={(e) => setConfig({...config, thresholdPercentage: e.target.value === '' ? '' : Number(e.target.value)})}
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-black text-lg opacity-40">%</span>
+              </div>
             </div>
             
           </div>
           <div className="modal-action mt-10">
-            <form method="dialog" className="w-full">
-              <button className="btn btn-primary btn-block btn-lg font-black shadow-lg border-none uppercase">Salvar e Fechar</button>
+            <form method="dialog" className="w-full" onSubmit={validateAndSanitizeConfig}>
+              <button className="btn btn-primary btn-block btn-lg font-black shadow-lg border-none uppercase">Save</button>
             </form>
           </div>
         </div>
